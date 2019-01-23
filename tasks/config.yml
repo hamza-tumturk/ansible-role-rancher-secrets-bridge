@@ -1,0 +1,158 @@
+---
+
+- name: Retrieve config files from repo
+  command: mktemp -d
+  register: repo_config_tmp_dir
+  when: secrets_bridge_config_source.type|lower == 'git'
+- git:
+    repo: "{{ secrets_bridge_config_source.addr }}"
+    dest: "{{ repo_config_tmp_dir.stdout }}"
+  register: repo_output
+  when: secrets_bridge_config_source.type|lower == 'git'
+- set_fact:
+    secrets_bridge_config_source:
+      type: "git"
+      addr: "{{ repo_config_tmp_dir.stdout }}"
+  when: secrets_bridge_config_source.type|lower == 'git'
+
+- name: Gather Rancher environment config files
+  find:
+    paths: "{{ secrets_bridge_config_source.addr }}"
+    patterns: '*.yml'
+  register: gather_env
+  when:
+    - (secrets_bridge_config_source.type|lower == 'git') or (secrets_bridge_config_source.type|lower == 'local')
+
+- name: Merge config files and make secrets_bridge_config
+  set_fact:
+    secrets_bridge_config: "{{ secrets_bridge_config + lookup('file', item )|from_yaml }}"
+  with_items:
+    - "{{ gather_env.files | selectattr('path', 'defined') | map(attribute='path') | list }}"
+  when:
+    - (secrets_bridge_config_source.type|lower == 'git') or (secrets_bridge_config_source.type|lower == 'local')
+
+- name: Set grantor policies
+  set_fact:
+    grantor_policy:
+      name: "secrets-bridge-grantor-{{ item | lower }}"
+      options:
+        - path: "sys/*"
+          capabilities: '[\"deny\"]'
+        - path: "{{ secrets_brige_config_path }}/{{ item }}/*"
+          capabilities: '[\"read\", \"list\"]'
+        - path: "auth/token/create/secrets-bridge-grantor-{{ item | lower }}"
+          capabilities: '[\"create\", \"read\", \"update\", \"delete\", \"list\"]'
+        - path: "secret/*"
+          capabilities: '[\"deny\"]'
+  with_items:
+    - "{{ secrets_bridge_config | selectattr('name', 'defined') | map(attribute='name') | list }}"
+  register: grantor_policy_output
+
+- set_fact:
+    grantor_policy_list: "{{ grantor_policy_output.results | selectattr('ansible_facts', 'defined') | map(attribute='ansible_facts.grantor_policy') | list }}"
+
+- name: Set application policies
+  set_fact:
+    application_policy_list: "{{ secrets_bridge_config | selectattr('options', 'defined') | map(attribute='options') | sum(start=[]) | selectattr('policy', 'defined') | map(attribute='policy') |  list }}"
+
+- name: Setup policies
+  uri:
+    url: "{{ secrets_bridge_vault_addr }}/v1/sys/policy/{{ item.name | lower }}"
+    method: "POST"
+    body: "{{ lookup('template', './policy.j2') }}"
+    body_format: json
+    headers:
+      X-Vault-Token: "{{ vault_token }}"
+    status_code: 204
+    validate_certs: false
+    return_content: true
+  with_items:
+    - "{{ grantor_policy_list }}"
+    - "{{ application_policy_list }}"
+  register: setup_policies
+
+- name: Create grantor roles
+  uri:
+    url: "{{ secrets_bridge_vault_addr }}/v1/auth/token/roles/secrets-bridge-grantor-{{ item.name | lower }}"
+    method: "POST"
+    body:
+      allowed_policies: "default,secrets-bridge-grantor-{{ item.name | lower }},{{ item.options | selectattr('policy.name', 'defined') | map(attribute='policy.name') | join(',') }}"
+    body_format: json
+    headers:
+      X-Vault-Token: "{{ vault_token }}"
+    status_code: 204
+    validate_certs: false
+    return_content: true
+  with_items:
+    - "{{ secrets_bridge_config }}"
+
+- name: Assign policies to applications
+  uri:
+    url: "{{ secrets_bridge_vault_addr }}/v1/{{ secrets_brige_config_path }}/{{ item.0.name }}/{{ item.1.scope }}"
+    method: "POST"
+    body:
+      policies: "default,{{ item.1.policy.name }}"
+    body_format: json
+    headers:
+      X-Vault-Token: "{{ vault_token }}"
+    status_code: 204
+    validate_certs: false
+    return_content: true
+  with_subelements:
+    - "{{ secrets_bridge_config }}"
+    - options
+
+- name: Generate PERM_TOKEN for Secrets-Bridge Server
+  uri:
+    url: "{{ secrets_bridge_vault_addr }}/v1/auth/token/create/secrets-bridge-grantor-{{ item.name | lower }}"
+    method: "POST"
+    body:
+      policies: "{{ ['default'] + ['secrets-bridge-grantor-' + item.name | lower ] + item.options | selectattr('policy.name', 'defined') | map(attribute='policy.name') | list }}"
+      ttl: "48h"
+      meta:
+        configPath: "{{secrets_brige_config_path}}"
+    body_format: json
+    headers:
+      X-Vault-Token: "{{ vault_token }}"
+    status_code: 200
+    validate_certs: false
+    return_content: true
+  with_items:
+    - "{{ secrets_bridge_config }}"
+  register: perm_token_output
+
+- name: Generate TEMP_TOKEN for Secrets-Bridge Server
+  uri:
+    url: "{{ secrets_bridge_vault_addr }}/v1/auth/token/create"
+    method: "POST"
+    body:
+      policies:
+        - "default"
+      ttl: "15m"
+      num_uses: "2"
+    body_format: json
+    headers:
+      X-Vault-Token: "{{ vault_token }}"
+    status_code: 200
+    validate_certs: false
+    return_content: true
+  with_items:
+    - "{{ secrets_bridge_config }}"
+  register: temp_token_output
+
+- name: Store PERM_TOKEN with TEMP_TOKEN in Cubbyhole
+  uri:
+    url: "{{ secrets_bridge_vault_addr }}/v1/cubbyhole/{{ item.item.name }}"
+    method: "POST"
+    body:
+      permKey: "{{ perm_token_output.results | selectattr('item.name', 'equalto', item.item.name ) | map(attribute='json.auth.client_token')  | join('') }}"
+    body_format: json
+    headers:
+      X-Vault-Token: "{{ item.json.auth.client_token }}"
+    status_code: 204
+    validate_certs: false
+    return_content: true
+  with_items:
+    - "{{ temp_token_output.results }}"
+  register: store_tokens_cubbyhole
+  no_log: "{{ secrets_bridge_no_log }}"

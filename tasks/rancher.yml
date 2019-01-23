@@ -1,0 +1,30 @@
+---
+- name: Rancher - Create temp composer dir
+  command: mktemp -d
+  register: docker_compose_tmp_dir
+
+- name: Rancher - Copy rancher-compose file
+  template:
+    src: "rancher-compose.yml.j2"
+    dest: "{{ docker_compose_tmp_dir.stdout }}/rancher-compose.yml"
+
+- name: Rancher - Copy docker-compose files
+  template:
+    src: "docker-compose.yml.j2"
+    dest: "{{ docker_compose_tmp_dir.stdout }}/docker-compose-{{ item.name }}.yml"
+  with_items:
+    - "{{ secrets_bridge_rancher_environment_api }}"
+  no_log: "{{ secrets_bridge_no_log }}"
+
+- name: Rancher - Setup Secrets-Bridge on Rancher
+  shell: "rancher-compose \
+    --url {{ item.url }} \
+    --access-key {{ item.access_key }} \
+    --secret-key {{ item.secret_key }} \
+    --project-name secrets-bridge \
+    --file {{ docker_compose_tmp_dir.stdout }}/docker-compose-{{ item.name }}.yml \
+    --rancher-file {{ docker_compose_tmp_dir.stdout }}/rancher-compose.yml \
+    up --upgrade -d --confirm-upgrade"
+  with_items:
+    - "{{ secrets_bridge_rancher_environment_api }}"
+  no_log: "{{ secrets_bridge_no_log }}"

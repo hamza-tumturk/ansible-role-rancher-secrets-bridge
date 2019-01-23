@@ -1,0 +1,76 @@
+---
+# defaults file for roles/install-hashicorp-vault
+
+# Define a Vault token with administration access.
+# Required to setup the task *approle* for the Secrets Bridge configuration on Vault.
+vault_root_token: ""
+
+## Set any custom IDs for the Secrets Bridge AppRole
+secrets_bridge_role_id: ""
+secrets_bridge_secret_id: ""
+
+## Turn on/off logging of sensitive information (default: logging enabled)
+secrets_bridge_no_log: False
+
+## Vault path for storing Secrets Bridge Server configurations
+secrets_brige_config_path: "secret/secrets-bridge"
+
+## You can either provide the Rancher environments configuration
+## in ansible vars, in a  git repo or local directory with yml files
+secrets_bridge_config_source:
+  type: "ansible" # ['ansible' , 'git' or 'local']
+  addr: "" # Provide url/path, required only for 'git' or 'local'
+  
+#secrets_bridge_config_repo: ""
+#secrets_bridge_config_repo_tmp_dir: "/tmp/ansible/rancher-secrets-bridge-config"
+## or provice path where the config files are lying
+#secrets_bridge_config_dir: ""
+
+## Secrets bridge config
+secrets_bridge_config: []
+#  - name: "Environment1"
+#    options:
+#      - scope: "Stack1/service1"
+#        policy:
+#          name: "app1"
+#          options:
+#            - path: "secret/Environment/Stack1/service1"
+#              capabilities: '[\"read\", \"list\"]'
+#      - scope: "Stack2/service2/Stack2-app2-1"
+#        policy:
+#          name: "app2"
+#          options:
+#            - path: "secret/Environment1/Stack2/service2"
+#              capabilities: '[\"read\", \"list\"]'
+#  - name: "Environment2"
+#    options:
+#      - scope: "Stack1/app1"
+#        policy:
+#          name: "app1"
+#          options:
+#            - path: "secret/Environment2/Stack3/service3"
+#              capabilities: '[\"read\", \"list\"]'
+
+
+## Rancher Environment API details
+## Environment API keys can be created in the UI, see:
+## http://rancher.com/docs/rancher/v1.6/en/api/v2-beta/api-keys/#environment-api-keys
+secrets_bridge_rancher_environment_api: []
+#  - name: Environment1
+#    url: http://rancher.server.io:8080/v1/projects/123abc
+#    access_key: 
+#    secret_key: 
+#  - name: Environment2
+#    url: http://rancher.server.io:8080/v1/projects/456efg
+#    access_key: 
+#    secret_key: 
+
+secrets_bridge_version: "v0.2.0"
+secrets_bridge_rancher_lb_haproxy_version: "v0.7.6"
+secrets_bridge_lb_port: "8888"
+
+## Address to Vault Server, format: https//yourvault.server:port
+secrets_bridge_vault_addr: ""
+
+secrets_bridge_approle_rules: "\npath \"/sys/policy/*\" { capabilities = [\"create\", \"update\"] } \npath \"/auth/token/roles/secrets-bridge-*\" { capabilities = [\"create\", \"update\"] } \npath \"/auth/token/create\" { capabilities = [\"create\", \"update\"] } \npath \"/auth/token/create/secrets-bridge-*\" { capabilities = [\"create\", \"update\"] } \npath \"/{{ secrets_brige_config_path }}*\" { capabilities = [\"create\", \"update\"] } "
+

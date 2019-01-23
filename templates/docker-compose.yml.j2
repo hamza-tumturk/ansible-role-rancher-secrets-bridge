@@ -1,0 +1,33 @@
+version: '2'
+services:
+  secrets-bridge-server:
+    image: rancher/secrets-bridge:{{secrets_bridge_version}}
+    environment:
+      CATTLE_ACCESS_KEY: {{item.access_key}}
+      CATTLE_SECRET_KEY: {{item.secret_key}}
+      CATTLE_URL: {{item.url}}
+      VAULT_ADDR: {{secrets_bridge_vault_addr}}
+      VAULT_CUBBYPATH: cubbyhole/{{item.name}}
+      VAULT_TOKEN: {{temp_token_output.results|selectattr('item.name', 'equalto', item.name )|map(attribute='json.auth.client_token')|join('')}}
+    command: "server --vault-url {{secrets_bridge_vault_addr}} --rancher-url {{item.url}} --rancher-secret {{item.secret_key}} --rancher-access {{item.access_key}}"
+    labels:
+      io.rancher.container.start_once: 'true'
+  secrets-bridge-lb:
+    image: rancher/load-balancer-service
+    ports:
+    - {{secrets_bridge_lb_port}}:8181/tcp
+    links:
+    - secrets-bridge-server:secrets-bridge-server
+    labels:
+      io.rancher.container.agent.role: environmentAdmin
+      io.rancher.container.create_agent: 'true'
+  secrets-bridge-agent:
+    privileged: true
+    image: rancher/secrets-bridge:{{secrets_bridge_version}}
+    volumes:
+    - /var/run/docker.sock:/var/run/docker.sock
+    command: -d agent --bridge-url http://secrets-bridge-lb.secrets-bridge:{{secrets_bridge_lb_port}}
+    labels:
+      io.rancher.container.agent.role: agent
+      io.rancher.container.create_agent: 'true'
+      io.rancher.scheduler.global: 'true'

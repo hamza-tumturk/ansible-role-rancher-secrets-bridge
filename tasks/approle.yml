@@ -1,0 +1,43 @@
+- name: approle - Set Secrets Bridge AppRole config
+  set_fact:
+    secrets_bridge_approle:
+      - path: "/sys/policy/secrets-bridge"
+        method: PUT
+        parameters:
+          rules: "{{ secrets_bridge_approle_rules }}"
+      - path: "/auth/approle/role/secrets-bridge"
+        method: POST
+        parameters:
+          token_ttl: "1440m"
+          token_max_ttl: "1440m"
+          policies: "secrets-bridge"
+          period: 0
+          bind_secret_id: true
+      - path: "/auth/approle/role/secrets-bridge/role-id"
+        method: POST
+        parameters:
+          role_id: "{{ secrets_bridge_role_id }}"
+      - path: "/auth/approle/role/secrets-bridge/custom-secret-id"
+        method: POST
+        parameters:
+          secret_id: "{{ secrets_bridge_secret_id }}"
+
+- name: approle - Setup Secrets Bridge Approle
+  uri:
+    url: "{{ secrets_bridge_vault_addr }}/v1{{ item.path }}"
+    method: "{{ item.method }}"
+    body: "{{ item.parameters | to_json }}"
+    body_format: json
+    headers:
+      X-Vault-Token: "{{ vault_root_token }}"
+    status_code: 200,204
+    validate_certs: false
+    return_content: true
+  with_items:
+    - "{{ secrets_bridge_approle }}"
+  register: setup_secrets_bridge_approle
+  failed_when:
+    - (setup_secrets_bridge_approle.status != 500) and ("'SecretID is already registered' not in setup_secrets_bridge_approle.json")
+    - setup_secrets_bridge_approle.status != 200
+    - setup_secrets_bridge_approle.status != 204
+  no_log: "{{ secrets_bridge_no_log }}"

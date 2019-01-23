@@ -1,0 +1,21 @@
+version: '2'
+services:
+  secrets-bridge-lb:
+    scale: 1
+    start_on_create: true
+    load_balancer_config:
+      load_balancer_config:
+      haproxy_config: {}
+    health_check:
+      healthy_threshold: 2
+      response_timeout: 2000
+      port: 42
+      unhealthy_threshold: 3
+      interval: 2000
+      strategy: recreate
+  secrets-bridge-server:
+    scale: 1
+    start_on_create: true
+  secrets-bridge-agent:
+    start_on_create: true
+    scale: 2

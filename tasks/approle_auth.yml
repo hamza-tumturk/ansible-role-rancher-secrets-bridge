@@ -1,0 +1,17 @@
+- name: AppRole auth - Authenticate against Vault
+  uri:
+    url: "{{ secrets_bridge_vault_addr }}/v1/auth/approle/login"
+    method: "POST"
+    body:
+      role_id: "{{ secrets_bridge_role_id }}"
+      secret_id: "{{ secrets_bridge_secret_id }}"
+    body_format: json
+    status_code: 200
+    validate_certs: false
+    return_content: true
+  register: approle_auth_output
+  no_log: "{{ secrets_bridge_no_log }}"
+
+- name: AppRole auth - Set vault_token 
+  set_fact:
+    vault_token: "{{ approle_auth_output.json.auth.client_token }}"

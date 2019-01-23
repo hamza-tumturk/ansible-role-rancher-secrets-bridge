@@ -1,0 +1,32 @@
+---
+# tasks file for roles/install-hashicorp-vault
+
+- name: Setup AppRole for Secrets Bridge
+  import_tasks: approle.yml
+  when:
+    - tasks_to_run is defined
+    - "'approle' in tasks_to_run"
+  run_once: true
+
+- name: Authenticate against Vault via AppRole
+  import_tasks: approle_auth.yml
+  when:
+    - tasks_to_run is defined
+    - "'config' in tasks_to_run"
+    - "'rancher' in tasks_to_run"
+  run_once: true
+
+- name: Setup Secrets Bridge environment
+  import_tasks: config.yml
+  when:
+    - tasks_to_run is defined
+    - "'config' in tasks_to_run"
+    - "'rancher' in tasks_to_run"
+  run_once: true
+
+- name: Setup Secrets Bridge Server and Agents on Rancher
+  import_tasks: rancher.yml
+  when:
+    - tasks_to_run is defined
+    - "'rancher' in tasks_to_run"
+  run_once: true
